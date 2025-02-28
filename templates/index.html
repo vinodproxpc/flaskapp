@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flask NVR - Camera Management</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+
+<div class="container mt-4">
+    <h2 class="text-center">Camera Management System</h2>
+    <a href="{{ url_for('add_camera') }}" class="btn btn-primary mb-3">Add Camera</a>
+    
+    <div class="row">
+        {% for camera in cameras %}
+        <div class="col-md-4">
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5 class="card-title">{{ camera.name }}</h5>
+                    <img src="{{ url_for('video_feed', id=camera.id) }}" class="img-fluid">
+                    <div class="mt-2">
+                        <a href="{{ url_for('edit_camera', id=camera.id) }}" class="btn btn-warning btn-sm">Edit</a>
+                        <a href="{{ url_for('delete_camera', id=camera.id) }}" class="btn btn-danger btn-sm">Delete</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
