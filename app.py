@@ -1,4 +1,6 @@
-from flask import Flask, request, jsonify, Response, render_template, flash, redirect, url_for
+import datetime
+import threading
+from flask import Flask, request, jsonify, Response, render_template, flash, redirect, send_from_directory, url_for
 import requests
 from flask_sqlalchemy import SQLAlchemy
 import cv2
@@ -11,13 +13,20 @@ import os
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
 app.config['SECRET_KEY'] = 'test1234nkksdvkksv'
+app.config['UPLOAD_FOLDER'] = 'static/recordings'
 db = SQLAlchemy(app)
+
+
+# Ensure recording folder exists
+if not os.path.exists(app.config['UPLOAD_FOLDER']):
+    os.makedirs(app.config['UPLOAD_FOLDER'])
 
 # Camera Model
 class Camera(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     rtsp_url = db.Column(db.String(300), nullable=False)
+    # recording = db.Column(db.Boolean, default=False)
 
 AI_SERVER_URL = "http://10.10.18.232:5053"
 
@@ -25,12 +34,14 @@ AI_SERVER_URL = "http://10.10.18.232:5053"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Global Dictionary to Track Recording Status
+recording_status = {}
 
 @app.route('/')
 def index():
     """ Home page list of all camera"""
     cameras = Camera.query.all()
-    return render_template('index.html', cameras=cameras)
+    return render_template('index.html', cameras=cameras, recording_status=recording_status)
 
 
 @app.route('/add', methods=['GET', 'POST'])
@@ -68,6 +79,58 @@ def delete_camera(id):
     db.session.commit()
     flash('Camera Deleted Successfully!', 'danger')
     return redirect(url_for('index'))
+
+# Video Recording Function
+def record_video(camera_id):
+    camera = Camera.query.get(camera_id)
+    if not camera:
+        return
+
+    cap = cv2.VideoCapture(camera.rtsp_url)
+    filename = os.path.join(app.config['UPLOAD_FOLDER'], f"{camera.name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(filename, fourcc, 20.0, (int(cap.get(3)), int(cap.get(4))))
+
+    recording_status[camera_id] = True  # Track recording state
+
+    while recording_status.get(camera_id, False):
+        success, frame = cap.read()
+        if not success:
+            break
+        out.write(frame)
+
+    cap.release()
+    out.release()
+    recording_status[camera_id] = False
+
+# Start/Stop Recording
+@app.route('/toggle_record/<int:id>')
+def toggle_record(id):
+    camera = Camera.query.get(id)
+    if camera:
+        if camera.recording:
+            camera.recording = False
+            db.session.commit()
+            flash(f'Recording Stopped for {camera.name}', 'warning')
+        else:
+            camera.recording = True
+            db.session.commit()
+            thread = threading.Thread(target=record_video, args=(id,))
+            thread.start()
+            flash(f'Recording Started for {camera.name}', 'success')
+    
+    return redirect(url_for('index'))
+
+# List Recorded Videos
+@app.route('/recordings')
+def recordings():
+    videos = os.listdir(app.config['UPLOAD_FOLDER'])
+    return render_template('recordings.html', videos=videos)
+
+# Serve Recorded Videos
+@app.route('/recordings/<filename>')
+def play_video(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -206,9 +269,6 @@ def video_feed(id):
     camera = Camera.query.get_or_404(id)
     return Response(generate_frames(camera.rtsp_url), mimetype='multipart/x-mixed-replace; boundary=frame')
     
-@app.route('/multistream')
-def multistream():
-    return render_template('index.html')
 
 if __name__ == '__main__':
     with app.app_context():
